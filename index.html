@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DISIPLIN KITA BISA</title>
+    <meta name="description" content="Aplikasi presensi dan kedisiplinan siswa sekolah dengan sistem scan/RFID instan, izin keluar kelas berkuota, pencatatan pelanggaran, rekap real time, dan sinkronisasi multi-perangkat." />
+    <meta property="og:title" content="DISIPLIN KITA BISA" />
+    <meta property="og:description" content="Aplikasi presensi dan kedisiplinan siswa sekolah dengan sistem scan/RFID instan, izin keluar kelas berkuota, pencatatan pelanggaran, rekap real time, dan sinkronisasi multi-perangkat." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="alternate icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Suppress benign WebSocket errors from Vite HMR in cloud sandbox environments
+      window.addEventListener('unhandledrejection', function (e) {
+        if (e && e.reason && typeof e.reason.message === 'string' && (e.reason.message.includes('WebSocket') || e.reason.message.includes('ws:'))) {
+          e.preventDefault();
+        }
+      });
+      window.addEventListener('error', function (e) {
+        if (e && typeof e.message === 'string' && (e.message.includes('WebSocket') || e.message.includes('ws:'))) {
+          e.preventDefault();
+        }
+      });
+    </script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
