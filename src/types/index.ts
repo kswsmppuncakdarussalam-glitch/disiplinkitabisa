@@ -17,7 +17,7 @@ import {
   OutOfClassType,
   OutOfClassStatus,
   ViolationCategory,
-} from '../../server/types.js';
+} from '../../server/types.ts';
 
 export type {
   User,

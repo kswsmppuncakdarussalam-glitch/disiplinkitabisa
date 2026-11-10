@@ -32,6 +32,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     googleSheetsConnected,
     syncStatus,
     syncNow,
+    serverVersion,
   } = useApp();
 
   const isLockedMenuOpen = Boolean(session?.lockedMenuRole);
@@ -118,9 +119,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           onClick={() => syncNow()}
           title={
             syncStatus === 'synced'
-              ? 'Multi-Device Sinkron Real-Time Aktif (Klik untuk sinkronkan manual)'
+              ? `Multi-Device Sinkron Real-Time Aktif (Versi Data: v${serverVersion}). Klik untuk sinkronkan manual.`
               : syncStatus === 'syncing'
-              ? 'Sedang menyinkronkan data...'
+              ? 'Sedang menyinkronkan data multi-perangkat...'
               : syncStatus === 'offline'
               ? 'Mode Offline Lokal Aktif'
               : 'Sinkronisasi tertunda (Klik untuk mencoba lagi)'
@@ -148,12 +149,15 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           />
           <span className="hidden sm:inline">
             {syncStatus === 'synced'
-              ? 'Real-Time'
+              ? `Real-Time (v${serverVersion})`
               : syncStatus === 'syncing'
               ? 'Sinkron...'
               : syncStatus === 'offline'
               ? 'Offline'
               : 'Coba Ulang'}
+          </span>
+          <span className="sm:hidden font-mono text-[10px]">
+            v{serverVersion}
           </span>
         </button>
 

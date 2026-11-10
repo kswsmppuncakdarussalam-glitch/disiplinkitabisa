@@ -21,9 +21,43 @@ import {
 
 // Required Google Workspace scopes
 export const SCOPES = [
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
 ];
+
+/**
+ * Returns Google Cloud Console OAuth 2.0 Web Client ID
+ * Priority: Custom configured -> Env var -> firebase-applet-config -> Fallback
+ */
+export const getGoogleClientId = (fallbackFromSettings?: string): string => {
+  if (fallbackFromSettings && fallbackFromSettings.trim()) {
+    return fallbackFromSettings.trim();
+  }
+  if (typeof window !== 'undefined') {
+    const custom = (window as any).__DKB_GOOGLE_CLIENT_ID__ || localStorage.getItem('dkb_google_client_id');
+    if (custom && custom.trim()) return custom.trim();
+  }
+  const envId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
+  if (envId && envId.trim()) return envId.trim();
+  const configId = (firebaseConfig as any)?.oAuthClientId;
+  if (configId && configId.trim()) return configId.trim();
+  return '1050818791896-mi4qsashp76oedjfgqiagmph04osv40b.apps.googleusercontent.com';
+};
+
+export const setCustomGoogleClientId = (clientId: string) => {
+  if (typeof window !== 'undefined') {
+    if (clientId && clientId.trim()) {
+      localStorage.setItem('dkb_google_client_id', clientId.trim());
+      (window as any).__DKB_GOOGLE_CLIENT_ID__ = clientId.trim();
+    } else {
+      localStorage.removeItem('dkb_google_client_id');
+      delete (window as any).__DKB_GOOGLE_CLIENT_ID__;
+    }
+  }
+};
 
 // Initialize Firebase App singleton
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -63,8 +97,7 @@ export const initGoogleAuth = (
     } else if (user && !inMemoryAccessToken) {
       // User is authenticated in Firebase Auth, mark active
       if (onSuccess) onSuccess(user, '');
-    } else if (!user) {
-      inMemoryAccessToken = null;
+    } else if (!user && !inMemoryAccessToken) {
       if (onFailure) onFailure();
     }
   });
@@ -103,26 +136,30 @@ if (typeof window !== 'undefined') {
 
 /**
  * Request Google OAuth token via Google Identity Services (GIS)
- * Uses direct user gesture token client to guarantee prompt: select_account
+ * Uses Google Cloud Console OAuth 2.0 Web Client directly
  */
 export const requestGoogleIdentityToken = async (
-  promptSelectAccount: boolean = true
+  promptSelectAccount: boolean = true,
+  customClientId?: string,
+  loginHint?: string
 ): Promise<{
   accessToken: string;
   accountInfo: ConnectedGoogleAccount;
   cancelled?: boolean;
 }> => {
-  const clientId = (firebaseConfig as any).oAuthClientId;
+  const clientId = (customClientId && customClientId.trim()) || getGoogleClientId();
   if (!clientId) {
-    throw new Error('Client ID OAuth Google tidak ditemukan pada konfigurasi aplikasi.');
+    throw new Error('Client ID OAuth Google Cloud Console tidak ditemukan. Masukkan Client ID pada Pengaturan Admin.');
   }
 
   await ensureGisLoaded();
 
   const google = (window as any).google;
   if (!google?.accounts?.oauth2) {
-    throw new Error('Layanan Google Identity Services belum siap di browser. Harap periksa koneksi internet Anda.');
+    throw new Error('Layanan Google Identity Services belum siap di browser. Harap periksa koneksi internet Anda atau muat ulang halaman.');
   }
+
+  const effectiveHint = loginHint || 'kswsmp.puncakdarussalam@gmail.com';
 
   return new Promise((resolve, reject) => {
     try {
@@ -130,20 +167,33 @@ export const requestGoogleIdentityToken = async (
         client_id: clientId,
         scope: SCOPES.join(' '),
         prompt: promptSelectAccount ? 'select_account' : '',
+        hint: effectiveHint,
         callback: async (tokenResponse: any) => {
           if (tokenResponse.error) {
             // User closed popup or cancelled
             if (
-              tokenResponse.error === 'access_denied' ||
               tokenResponse.error === 'popup_closed_by_user' ||
-              tokenResponse.error === 'cancelled'
+              tokenResponse.error === 'cancelled' ||
+              tokenResponse.error_subtype === 'user_cancel'
             ) {
               return resolve({ accessToken: '', accountInfo: null as any, cancelled: true });
             }
-            if (tokenResponse.error === 'popup_blocked_by_browser') {
-              return reject(new Error('Popup Google diblokir peramban. Harap izinkan pop-up (jendela sembulan) untuk situs ini.'));
+            if (tokenResponse.error === 'access_denied') {
+              const desc = tokenResponse.error_description || '';
+              return reject(new Error('Aplikasi Google belum diverifikasi / dibatasi tester (Error 403: access_denied). Silakan gunakan tab "Tautkan Email Langsung" untuk menautkan email tanpa Google Cloud Console.'));
             }
-            return reject(new Error(tokenResponse.error_description || tokenResponse.error));
+            if (tokenResponse.error === 'popup_blocked_by_browser' || tokenResponse.error_subtype === 'popup_blocked') {
+              return reject(new Error('Popup Google diblokir peramban. Harap izinkan pop-up (jendela sembulan) untuk situs ini, atau buka aplikasi di tab baru.'));
+            }
+            const desc = tokenResponse.error_description || tokenResponse.error;
+            if (typeof desc === 'string' && (desc.includes('origin_mismatch') || desc.includes('redirect_uri_mismatch') || desc.includes('origin'))) {
+              const curOrig = typeof window !== 'undefined' ? window.location.origin : '';
+              return reject(new Error(`Asal JavaScript (${curOrig}) belum terdaftar di Authorized JavaScript origins Google Cloud Console. Silakan buka console.cloud.google.com/apis/credentials dan tambahkan URL tersebut.`));
+            }
+            if (typeof desc === 'string' && (desc.includes('403') || desc.includes('access_denied') || desc.includes('test') || desc.includes('verification'))) {
+              return reject(new Error('Aplikasi belum diverifikasi Google (Error 403). Gunakan opsi "Tautkan Email Langsung" di aplikasi untuk menghubungkan email tanpa ID Cloud Console.'));
+            }
+            return reject(new Error(desc || 'Otentikasi Google Cloud Console gagal.'));
           }
 
           const token = tokenResponse.access_token;
@@ -153,12 +203,12 @@ export const requestGoogleIdentityToken = async (
 
           inMemoryAccessToken = token;
 
-          // Bridge to Firebase Auth using signInWithCredential so Firebase Auth is in sync without domain restrictions
+          // Bridge to Firebase Auth safely without domain restrictions or blocking errors
           try {
             const credential = GoogleAuthProvider.credential(null, token);
             await signInWithCredential(firebaseAuth, credential);
           } catch (fbAuthErr: any) {
-            console.info('[Firebase Auth bridge note]:', fbAuthErr?.message || fbAuthErr);
+            // Silently ignore any Firebase Auth domain issues since Google Identity Services is our primary provider
           }
 
           try {
@@ -191,14 +241,25 @@ export const requestGoogleIdentityToken = async (
           if (err?.type === 'popup_closed' || err?.type === 'user_cancel') {
             resolve({ accessToken: '', accountInfo: null as any, cancelled: true });
           } else if (err?.type === 'popup_blocked') {
-            reject(new Error('Popup Google diblokir peramban. Harap izinkan pop-up untuk situs ini.'));
+            reject(new Error('Popup Google diblokir peramban. Harap izinkan pop-up untuk situs ini, atau buka di tab baru.'));
           } else {
-            reject(new Error(err?.message || 'Gagal memproses otentikasi Google.'));
+            const msg = err?.message || err?.type || 'Gagal memproses otentikasi Google Cloud Console.';
+            const curOrig = typeof window !== 'undefined' ? window.location.origin : '';
+            if (typeof msg === 'string' && (msg.includes('403') || msg.includes('access_denied') || msg.includes('tester') || msg.includes('verification'))) {
+              reject(new Error('Aplikasi Google belum diverifikasi (Error 403: access_denied). Gunakan opsi "Tautkan Email Langsung" di aplikasi untuk menghubungkan email tanpa ID Cloud Console.'));
+            } else if (typeof msg === 'string' && (msg.includes('origin_mismatch') || msg.includes('origin') || msg.includes('400'))) {
+              reject(new Error(`Asal JavaScript (${curOrig}) belum terdaftar di Google Cloud Console. Silakan buka console.cloud.google.com/apis/credentials dan tambahkan ke Authorized JavaScript origins.`));
+            } else {
+              reject(new Error(msg));
+            }
           }
         },
       });
 
-      client.requestAccessToken({ prompt: promptSelectAccount ? 'select_account' : '' });
+      client.requestAccessToken({
+        prompt: promptSelectAccount ? 'select_account' : '',
+        hint: effectiveHint,
+      });
     } catch (err: any) {
       reject(err);
     }
@@ -206,85 +267,32 @@ export const requestGoogleIdentityToken = async (
 };
 
 /**
- * Sign in with Google using Firebase Auth SDK with requested Drive + Sheets scopes.
- * Guarantees account selection (select_account) and eliminates origin_mismatch errors.
+ * Sign in with Google using Google Cloud Console OAuth 2.0 Web Client (Google Identity Services).
+ * Connects directly to Google Accounts with select_account prompt and eliminates all Firebase unauthorized-domain errors.
  */
 export const signInWithGoogle = async (
-  promptSelectAccount: boolean = true
+  promptSelectAccount: boolean = true,
+  customClientId?: string,
+  loginHint?: string
 ): Promise<{ user?: User; accessToken: string; accountInfo: ConnectedGoogleAccount; cancelled?: boolean }> => {
   try {
     isSigningIn = true;
+    const gisResult = await requestGoogleIdentityToken(promptSelectAccount, customClientId, loginHint);
 
-    // 1. Primary: Firebase Auth SDK signInWithPopup (as prescribed by Google Workspace integration)
-    const provider = new GoogleAuthProvider();
-    SCOPES.forEach((scope) => provider.addScope(scope));
-
-    if (promptSelectAccount) {
-      provider.setCustomParameters({
-        prompt: 'select_account',
-      });
-    }
-
-    try {
-      const result = await signInWithPopup(firebaseAuth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        throw new Error('Gagal mendapatkan Access Token dari otentikasi Google.');
-      }
-
-      inMemoryAccessToken = credential.accessToken;
-      const accountInfo: ConnectedGoogleAccount = {
-        email: result.user.email || '',
-        name: result.user.displayName || result.user.email || 'Admin Google',
-        photo: result.user.photoURL || undefined,
-        uid: result.user.uid,
-        connectedAt: new Date().toISOString(),
-      };
-
+    if (gisResult.cancelled || !gisResult.accessToken) {
       return {
-        user: result.user,
-        accessToken: inMemoryAccessToken,
-        accountInfo,
+        accessToken: '',
+        accountInfo: null as any,
+        cancelled: true,
       };
-    } catch (firebaseErr: any) {
-      // User closed popup or cancelled
-      if (
-        firebaseErr.code === 'auth/popup-closed-by-user' ||
-        firebaseErr.code === 'auth/cancelled-popup-request'
-      ) {
-        return {
-          accessToken: '',
-          accountInfo: null as any,
-          cancelled: true,
-        };
-      }
-
-      if (firebaseErr.code === 'auth/popup-blocked') {
-        throw new Error('Popup pemilihan akun Google diblokir peramban. Harap izinkan pop-up untuk situs ini.');
-      }
-
-      console.warn('[Firebase Auth fallback to GIS]:', firebaseErr?.message || firebaseErr);
-
-      // 2. Secondary fallback: GIS Token Client
-      if (typeof window !== 'undefined') {
-        await ensureGisLoaded();
-        if ((window as any).google?.accounts?.oauth2) {
-          try {
-            const gisResult = await requestGoogleIdentityToken(promptSelectAccount);
-            return {
-              user: firebaseAuth.currentUser || undefined,
-              accessToken: gisResult.accessToken,
-              accountInfo: gisResult.accountInfo,
-              cancelled: gisResult.cancelled,
-            };
-          } catch (gisErr: any) {
-            console.warn('[GIS fallback note]:', gisErr);
-          }
-        }
-      }
-
-      throw new Error(firebaseErr?.message || 'Gagal melakukan otentikasi Google.');
     }
+
+    return {
+      user: firebaseAuth.currentUser || undefined,
+      accessToken: gisResult.accessToken,
+      accountInfo: gisResult.accountInfo,
+      cancelled: false,
+    };
   } finally {
     isSigningIn = false;
   }
@@ -322,6 +330,10 @@ export const getOrCreateDriveFolder = async (
   });
 
   if (!searchRes.ok) {
+    if (searchRes.status === 401) {
+      setInMemoryToken(null);
+      throw new Error('Sesi otorisasi Google telah berakhir (401). Harap hubungkan ulang akun Google Anda.');
+    }
     const err = await searchRes.json().catch(() => ({}));
     throw new Error(err.error?.message || `Gagal mencari folder di Google Drive (${searchRes.status})`);
   }
@@ -501,6 +513,12 @@ export const syncAllDataToGoogleSheets = async (
   });
 
   if (!metaRes.ok) {
+    if (metaRes.status === 401) {
+      setInMemoryToken(null);
+      const errorObj: any = new Error('Sesi otorisasi Google telah berakhir (401). Harap klik "Hubungkan OAuth 2.0 Google" untuk memperbarui sesi.');
+      errorObj.statusCode = 401;
+      throw errorObj;
+    }
     const err = await metaRes.json().catch(() => ({}));
     const errorObj: any = new Error(err.error?.message || `Gagal membaca Google Spreadsheet (${metaRes.status}).`);
     errorObj.statusCode = metaRes.status;

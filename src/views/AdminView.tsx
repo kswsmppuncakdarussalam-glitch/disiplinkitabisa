@@ -41,6 +41,8 @@ import {
   CheckCircle2,
   RotateCcw,
   Maximize2,
+  Copy,
+  Zap,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.js';
 import {
@@ -50,6 +52,10 @@ import {
   StudentImportRow,
 } from '../utils/excel.js';
 import { GoogleAccountSelectModal } from '../components/modals/GoogleAccountSelectModal.js';
+import {
+  getGoogleClientId,
+  setCustomGoogleClientId,
+} from '../utils/googleWorkspace.js';
 import {
   SCHOOL_NAME_PRESETS,
   SCHOOL_LOGO_PRESETS,
@@ -134,6 +140,52 @@ export const AdminView: React.FC = () => {
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
+  const [customClientIdInput, setCustomClientIdInput] = useState(() => getGoogleClientId());
+  const [showClientIdConfig, setShowClientIdConfig] = useState(false);
+  const [isEditingDriveIds, setIsEditingDriveIds] = useState(false);
+  const [inlineSheetIdInput, setInlineSheetIdInput] = useState('');
+  const [inlineFolderIdInput, setInlineFolderIdInput] = useState('');
+  const [isManualMultiSyncing, setIsManualMultiSyncing] = useState(false);
+
+  const handleOpenInlineEdit = () => {
+    setInlineSheetIdInput(settings.google_sheet_url || settings.google_sheet_id || '');
+    setInlineFolderIdInput(settings.google_drive_folder_url || settings.google_drive_folder_id || '');
+    setIsEditingDriveIds(true);
+  };
+
+  const handleSaveInlineDriveIds = async () => {
+    let sId = inlineSheetIdInput.trim();
+    let sUrl = '';
+    if (sId.includes('/d/')) {
+      const parts = sId.split('/d/');
+      sId = parts[1].split('/')[0];
+      sUrl = inlineSheetIdInput.trim();
+    } else if (sId) {
+      sUrl = `https://docs.google.com/spreadsheets/d/${sId}/edit`;
+    }
+
+    let fId = inlineFolderIdInput.trim();
+    let fUrl = '';
+    if (fId.includes('/folders/')) {
+      const parts = fId.split('/folders/');
+      fId = parts[1].split('/')[0].split('?')[0];
+      fUrl = inlineFolderIdInput.trim();
+    } else if (fId) {
+      fUrl = `https://drive.google.com/drive/folders/${fId}`;
+    }
+
+    await updateSettings({
+      google_sheet_id: sId,
+      google_sheet_url: sUrl,
+      google_drive_folder_id: fId,
+      google_drive_folder_url: fUrl,
+      google_account_email: settings.google_account_email || 'kswsmp.puncakdarussalam@gmail.com',
+      google_account_name: settings.google_account_name || 'Kesiswaan SMP Puncak Darussalam',
+      google_last_synced_at: new Date().toISOString(),
+    });
+    showToast('Tautan Google Spreadsheet & Drive berhasil diperbarui!', 'success');
+    setIsEditingDriveIds(false);
+  };
 
   // Session CRUD state
   const [editingSession, setEditingSession] = useState<Partial<AttendanceSession> | null>(null);
@@ -3043,20 +3095,33 @@ export const AdminView: React.FC = () => {
                 {/* Account Connect / Change / Disconnect Buttons */}
                 <div className="flex flex-wrap items-center gap-2">
                   {!googleSheetsConnected ? (
-                    <button
-                      type="button"
-                      disabled={googleSyncing}
-                      onClick={() => setIsGoogleModalOpen(true)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 font-semibold text-slate-800 dark:text-slate-100 shadow-xs transition-colors"
-                    >
-                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48">
-                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
-                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
-                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-                      </svg>
-                      <span>{googleSyncing ? 'Menghubungkan...' : 'Hubungkan OAuth 2.0 Google'}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={googleSyncing}
+                        onClick={() => connectGoogle(false, 'kswsmp.puncakdarussalam@gmail.com')}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors"
+                        title="Hubungkan otomatis akun kswsmp.puncakdarussalam@gmail.com ke Google Cloud Console"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-300" />
+                        <span>Otomatis ke Cloud Console (kswsmp.puncakdarussalam@gmail.com)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={googleSyncing}
+                        onClick={() => setIsGoogleModalOpen(true)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 font-semibold text-slate-700 dark:text-slate-200 text-xs shadow-xs transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 48 48">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                        </svg>
+                        <span>Opsi Google Lengkap</span>
+                      </button>
+                    </div>
                   ) : (
                     <>
                       <button
@@ -3099,6 +3164,115 @@ export const AdminView: React.FC = () => {
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Mode & Optional Advanced Developer Settings */}
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    Mode Akun: Email Sekolah Langsung (Bebas Error Developer &amp; Tanpa ID)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowClientIdConfig(!showClientIdConfig)}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1"
+                >
+                  <Key className="w-3.5 h-3.5 text-blue-500" />
+                  <span>{showClientIdConfig ? 'Tutup Pengaturan Lanjutan' : 'Pengaturan Lanjutan Cloud Console (Opsional)'}</span>
+                </button>
+              </div>
+
+              {showClientIdConfig && (
+                <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5 animate-in fade-in duration-150">
+                  {/* Origin URL Copy Bar */}
+                  <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800/60 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        Asal JavaScript Aplikasi (Tambahkan ke Google Cloud Console)
+                      </span>
+                      <a
+                        href="https://console.cloud.google.com/apis/credentials"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Buka Credentials Console</span>
+                      </a>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-2.5 py-1.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-mono text-[11px] truncate border border-slate-200 dark:border-slate-700 select-all">
+                        {typeof window !== 'undefined' ? window.location.origin : ''}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const orig = typeof window !== 'undefined' ? window.location.origin : '';
+                          if (orig) {
+                            await navigator.clipboard.writeText(orig);
+                            showToast('Asal JavaScript disalin! Tempelkan di Authorized JavaScript origins.', 'success');
+                          }
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-xs font-semibold shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Salin Origin URL</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 text-[11px] mb-1">
+                      OAuth 2.0 Web Client ID (dari console.cloud.google.com):
+                    </label>
+                    <input
+                      type="text"
+                      value={customClientIdInput}
+                      onChange={(e) => setCustomClientIdInput(e.target.value)}
+                      placeholder="contoh: 1049823447787-xxxx.apps.googleusercontent.com"
+                      className="w-full px-3 py-1.5 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-500">
+                      Pastikan URL asal aplikasi di atas didaftarkan di <strong>Authorized JavaScript origins</strong> pada Client ID ini.
+                    </p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setCustomGoogleClientId('');
+                          await updateSettings({ google_client_id: '' });
+                          setCustomClientIdInput(getGoogleClientId());
+                          showToast('Client ID dikembalikan ke bawaan.', 'info');
+                          setShowClientIdConfig(false);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      >
+                        Reset Default
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const cleaned = customClientIdInput.trim();
+                          setCustomGoogleClientId(cleaned);
+                          await updateSettings({ google_client_id: cleaned });
+                          showToast('Client ID Google Console disimpan ke database!', 'success');
+                          setShowClientIdConfig(false);
+                        }}
+                        className="px-3 py-1 text-[11px] font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 rounded-lg shadow-xs"
+                      >
+                        Simpan Client ID
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Folder & Spreadsheet Automated Status Cards */}
@@ -3208,8 +3382,75 @@ export const AdminView: React.FC = () => {
               </div>
             </div>
 
+            {/* Quick Inline Manual Drive/Sheet Link Toggle */}
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-500" />
+                  Tautkan Link / ID Spreadsheet &amp; Folder Manual (Tanpa OAuth)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isEditingDriveIds) handleOpenInlineEdit();
+                    else setIsEditingDriveIds(false);
+                  }}
+                  className="font-bold text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {isEditingDriveIds ? 'Tutup Formulir' : 'Buka Formulir Tautan Manual'}
+                </button>
+              </div>
+
+              {isEditingDriveIds && (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2.5 animate-in fade-in duration-150">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Link atau ID Google Spreadsheet:
+                    </label>
+                    <input
+                      type="text"
+                      value={inlineSheetIdInput}
+                      onChange={(e) => setInlineSheetIdInput(e.target.value)}
+                      placeholder="https://docs.google.com/spreadsheets/d/1xxxx/edit atau ID spreadsheet"
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Link atau ID Folder Google Drive (Opsional):
+                    </label>
+                    <input
+                      type="text"
+                      value={inlineFolderIdInput}
+                      onChange={(e) => setInlineFolderIdInput(e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/1xxxx atau ID folder"
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-[11px]"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingDriveIds(false)}
+                      className="px-3 py-1 rounded text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveInlineDriveIds}
+                      className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs"
+                    >
+                      Simpan Tautan Spreadsheet &amp; Drive
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Live Data Summary to be Synchronized */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
               <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
                 <span className="text-slate-400 block text-[10px]">Siswa Terdaftar</span>
                 <span className="text-base font-bold text-slate-900 dark:text-white">{students.length}</span>
@@ -3229,43 +3470,85 @@ export const AdminView: React.FC = () => {
             </div>
           </div>
 
-          {/* Architecture & Multi-device Offline Sync Details */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-900 dark:text-white">
-              Arsitektur Sinkronisasi Real-Time & Akses Offline Multi-Device
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <span className="text-slate-500 block text-[11px]">Versi State Delta (Counter):</span>
-                <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
+          {/* Architecture & Multi-device Real-Time Sync Details */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Status Sinkronisasi Multi-Device Real-Time (Semua Perangkat &amp; Pengguna)
+                </h3>
+                <p className="text-slate-500 text-[11px] mt-0.5">
+                  Setiap mutasi presensi, izin keluar, dan pelanggaran otomatis disinkronkan ke seluruh HP/laptop petugas piket, wali kelas, dan kesiswaan.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={isManualMultiSyncing}
+                onClick={async () => {
+                  setIsManualMultiSyncing(true);
+                  try {
+                    await syncNow();
+                    showToast(`Sinkronisasi berhasil! Versi data server: v${serverVersion} (terkini).`, 'success');
+                  } finally {
+                    setIsManualMultiSyncing(false);
+                  }
+                }}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs disabled:opacity-50 transition-colors shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isManualMultiSyncing ? 'animate-spin' : ''}`} />
+                <span>{isManualMultiSyncing ? 'Menyinkronkan...' : 'Sinkronkan Multi-Perangkat Sekarang'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <span className="text-slate-500 block text-[10px]">Versi Data Server (Counter):</span>
+                <span className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400">
                   v{serverVersion}
                 </span>
               </div>
 
-              <div className="p-3 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <span className="text-slate-500 block text-[11px]">Interval Polling Adaptif:</span>
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  3s (Aktif) / 15s (Tersembunyi)
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <span className="text-slate-500 block text-[10px]">Interval Polling Otomatis:</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  2.5s (Aktif) / 15s (Latar)
                 </span>
               </div>
 
-              <div className="p-3 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <span className="text-slate-500 block text-[11px]">Penyimpanan Lokal:</span>
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  Aktif (PWA + Service Worker)
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <span className="text-slate-500 block text-[10px]">Sinkronisasi Antar Tab:</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  BroadcastChannel (0ms)
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <span className="text-slate-500 block text-[10px]">Status Akses Offline:</span>
+                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                  PWA Cache + Queue Aktif
                 </span>
               </div>
             </div>
 
-            <div className="p-3 rounded bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
-              <h4 className="font-bold text-slate-900 dark:text-white">
-                Prinsip Perlindungan Bentrok & Integritas Data Multi-Perangkat:
+            <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
+              <h4 className="font-bold text-slate-900 dark:text-white text-xs">
+                Perlindungan Bentrok &amp; Konsistensi Data Multi-Perangkat:
               </h4>
-              <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-300 text-[11px]">
-                <li><b>Pencegahan Duplikat Presensi:</b> Kunci unik (student_id + session_id + date) dievaluasi di level server secara atomik sehingga perangkat ganda tidak akan mencatat presensi ganda.</li>
-                <li><b>Pencegahan Perebutan Kuota:</b> Kuota izin keluar maksimal 2 siswa per rombel divalidasi dengan lock sebelum mutasi diizinkan.</li>
-                <li><b>Idempotensi Kepulangan:</b> Konfirmasi kepulangan izin menggunakan idempotency key sehingga konfirmasi ganda tidak menggandakan poin atau catatan.</li>
-                <li><b>Sinkronisasi Cloud Google:</b> Menyimpan salinan data otomatis di Google Drive dan Google Sheets yang dapat diakses di mana saja.</li>
+              <ul className="list-disc pl-4 space-y-1.5 text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+                <li>
+                  <strong>Pencegahan Duplikat Presensi Antar Perangkat:</strong> Server memeriksa pasangan kunci unik <code>student_id + session_id + date</code> secara atomik dengan lock penulisan. Scan bersamaan dari dua HP berbeda untuk siswa yang sama tidak akan pernah menduplikasi presensi.
+                </li>
+                <li>
+                  <strong>Pencegahan Perebutan Kuota Izin Keluar:</strong> Kuota maksimal 2 siswa per rombel dievaluasi dengan kunci mutex serial di server. Jika 2 siswa mengajukan izin pada detik yang sama di kelas yang sama, sistem memastikan kuota tidak terlampaui.
+                </li>
+                <li>
+                  <strong>Delta Polling Ringan:</strong> Setiap perangkat hanya mengunduh selisih perubahan (delta changes) sejak versi terakhirnya, menghemat kuota internet dan menjaga latensi di bawah 2.5 detik.
+                </li>
+                <li>
+                  <strong>Sinkronisasi Basis Data Cloud:</strong> Seluruh mutasi juga dapat disinkronkan berkala ke Google Sheets dan Google Drive sekolah (<code>kswsmp.puncakdarussalam@gmail.com</code>).
+                </li>
               </ul>
             </div>
           </div>

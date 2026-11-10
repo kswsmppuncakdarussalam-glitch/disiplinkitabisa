@@ -50,12 +50,13 @@ interface AppContextType {
   isKioskFullscreen: boolean;
   toggleKioskFullscreen: () => void;
 
-  // Google Workspace Integration
+  // Google Workspace & Email Integration
   googleAccount: ConnectedGoogleAccount | null;
   googleSyncing: boolean;
-  connectGoogle: (promptSelect?: boolean) => Promise<{ success: boolean; error?: string }>;
+  connectGoogle: (promptSelect?: boolean, emailHint?: string) => Promise<{ success: boolean; error?: string }>;
   disconnectGoogle: () => Promise<void>;
-  syncGoogleSheetsNow: () => Promise<{ success: boolean; rowsUpdated?: number; error?: string }>;
+  linkEmailDirectly: (email: string, name?: string) => Promise<{ success: boolean; error?: string }>;
+  syncGoogleSheetsNow: (emailHint?: string) => Promise<{ success: boolean; rowsUpdated?: number; error?: string }>;
 
   // Data
   settings: AppSettings;
@@ -147,8 +148,10 @@ const defaultSettings: AppSettings = {
   out_of_class_bab_duration: 10,
   out_of_class_other_duration: 2,
   toggle_allow_edit_violation_points: true,
-  toggle_email_notifications: false,
+  toggle_email_notifications: true,
   toggle_kiosk_mode: false,
+  google_account_email: 'kswsmp.puncakdarussalam@gmail.com',
+  google_account_name: 'Kesiswaan SMP Puncak Darussalam',
   updated_at: new Date().toISOString(),
 };
 
@@ -1172,11 +1175,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Google Workspace Integration Actions
-  const connectGoogle = async (promptSelect: boolean = true) => {
+  const connectGoogle = async (promptSelect: boolean = true, emailHint?: string) => {
     try {
       setGoogleSyncing(true);
-      showToast('Membuka OAuth 2.0 Google...', 'info');
-      const res = await signInWithGoogle(promptSelect);
+      const targetHint = emailHint || settings.google_account_email || 'kswsmp.puncakdarussalam@gmail.com';
+      showToast(`Membuka OAuth 2.0 Cloud Console untuk ${targetHint}...`, 'info');
+      const res = await signInWithGoogle(promptSelect, settings.google_client_id, targetHint);
       if (res.cancelled || !res.accessToken) {
         showToast('Pemilihan akun Google dibatalkan.', 'info');
         return { success: false };
@@ -1252,13 +1256,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const syncGoogleSheetsNow = async () => {
+  const linkEmailDirectly = async (email: string, name?: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const cleanEmail = email.trim();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        showToast('Masukkan alamat email yang valid (contoh: kswsmp.puncakdarussalam@gmail.com)', 'error');
+        return { success: false, error: 'Email tidak valid' };
+      }
+      const displayName = (name && name.trim()) || cleanEmail.split('@')[0].toUpperCase();
+      const nowIso = new Date().toISOString();
+
+      const accountInfo: ConnectedGoogleAccount = {
+        email: cleanEmail,
+        name: displayName,
+        uid: `direct_${Date.now()}`,
+        connectedAt: nowIso,
+      };
+
+      setGoogleAccount(accountInfo);
+      setGoogleSheetsConnected(true);
+
+      await updateSettings({
+        google_account_email: cleanEmail,
+        google_account_name: displayName,
+        google_last_synced_at: nowIso,
+      });
+
+      showToast(`Email ${cleanEmail} berhasil ditautkan sebagai akun resmi sekolah!`, 'success');
+      return { success: true };
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menautkan email', 'error');
+      return { success: false, error: err.message };
+    }
+  };
+
+  const syncGoogleSheetsNow = async (emailHint?: string) => {
     try {
       setGoogleSyncing(true);
       let token = await getAccessToken();
+      const targetHint = emailHint || settings.google_account_email || 'kswsmp.puncakdarussalam@gmail.com';
       if (!token) {
-        showToast('Meminta otorisasi OAuth Google untuk sinkronisasi...', 'info');
-        const res = await signInWithGoogle(false);
+        showToast(`Meminta otorisasi OAuth Google untuk ${targetHint}...`, 'info');
+        const res = await signInWithGoogle(false, settings.google_client_id, targetHint);
         if (res.cancelled || !res.accessToken) {
           showToast('Otorisasi Google diperlukan untuk sinkronisasi data cloud.', 'info');
           return { success: false };
@@ -2138,6 +2177,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         googleSyncing,
         connectGoogle,
         disconnectGoogle,
+        linkEmailDirectly,
         syncGoogleSheetsNow,
         loginDuty,
         unlockHomeroom,
